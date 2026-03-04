@@ -7,7 +7,11 @@ generic(
 	ram_size : INTEGER := 32768; -- Bytes
 	cache_size_byte : INTEGER := 512; -- Bytes
 	num_of_blocks: INTEGER := 32;
-	block_size : INTEGER := 128 -- bits
+	block_size : INTEGER := 128; -- bits
+	
+	cache_delay : time := 10 ns;
+	clock_period : time := 1 ns
+
 );
 port(
 	clock : in std_logic;
@@ -47,6 +51,8 @@ architecture arch of cache is
 --access the below array simply like this cache_block(block #)(line indices)
 TYPE CACHE IS ARRAY(num_of_blocks-1 downto 0) OF STD_LOGIC_VECTOR(135 downto 0);
 signal cache_block: CACHE; 
+signal write_waitreq_reg: STD_LOGIC := '1';
+signal read_waitreq_reg: STD_LOGIC := '1';
 
 type state_type is (IDLE,READING,READ_READY,WRITING,MISS,READ_HIT,WRITE_HIT, EVICTION);
 signal state: state_type;
@@ -73,14 +79,28 @@ process (clock, reset)
 begin
 	if reset = '1' then
 		state <= IDLE;
+		mem_state <= mem_1;
 	elsif (clock'event and clock = '1') then
 		state <= next_state;
+		mem_state <= next_mem_state;
 	end if;
 end process;
 
-avalon_structure_proc : process (state)
+-- The simulation was not updating the state so I added other triggers
+avalon_structure_proc : process (state, reset, s_addr, s_read, s_write, s_writedata,
+ m_waitrequest, m_readdata, cache_block, block_number, Read_NotWrite, next_mem_state,
+  reset)
 
 begin
+-- The simulation was showing U for these signals, adding default values solved this
+	next_state <= state;
+	next_mem_state <= mem_state;
+	m_read <= '0';
+	m_write <= '0';
+	m_addr <= 0;
+	m_writedata <= "00000000";
+	s_waitrequest <= '1';
+	
 	case state is
 		when IDLE =>
 			s_waitrequest <= '1';
@@ -97,16 +117,10 @@ begin
 			end if;
 			
 		when READING =>	
-			
-			if cache_block(block_number)(135) = '1' -- Valid
-				and cache_block(block_number)(133 downto 128) = s_addr(14 downto 9) -- Tag Mismatch 
-				then
-				-- valid plus tag match 
+			--condition here must be combinational logic between s_addr(31 downto something) and cacheArray(something downto 31 less than something)
+			if cache_block(block_number)(135) = '1' and cache_block(block_number)(133 downto 128) = s_addr(14 downto 9) then -- valid plus tag match 
 				next_state <= READ_HIT;
-			elsif (cache_block(block_number)(135) = '1' -- Valid
-				   and cache_block(block_number)(133 downto 128) /= s_addr(14 downto 9) -- Tag Mismatch
-				   and cache_block(block_number)(134) = '1') -- Dirty
-				   then
+			elsif (cache_block(block_number)(135) = '1' and cache_block(block_number)(133 downto 128) /= s_addr(14 downto 9) and cache_block(block_number)(135) = '1') then  --tag mismatch and dirty
 				--write to main memory
 				next_state <= EVICTION;
 				next_mem_state <= mem_1;
@@ -130,10 +144,10 @@ begin
 			s_waitrequest <= '0';
 			
 		when MISS =>
-		--within this state there are 16 sub states, these represent stall due to reading from memory
+		--within this state there are 16 sub states, these represent stalling
 		-- because memory only output bytes and we only write 4 words at a time we must go through all the bytes.
 		
-			case next_mem_state is 
+			case mem_state is 
 
 				when mem_1 => 
 					m_addr <= to_integer(unsigned(std_logic_vector'(s_addr(14 downto 4) & "0000")));
@@ -141,6 +155,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_2;
+						m_read <= '0';
 						cache_block(block_number)(7 downto 0) <= m_readdata;
 					else
 						next_mem_state <= mem_1;
@@ -152,6 +167,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_3;
+						m_read <= '0';
 						cache_block(block_number)(15 downto 8) <= m_readdata;
 					else
 						next_mem_state <= mem_2;
@@ -163,6 +179,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_4;
+						m_read <= '0';
 						cache_block(block_number)(23 downto 16) <= m_readdata;
 					else
 						next_mem_state <= mem_3;
@@ -174,6 +191,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_5;
+						m_read <= '0';
 						cache_block(block_number)(31 downto 24) <= m_readdata;
 					else
 						next_mem_state <= mem_4;
@@ -185,6 +203,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_6;
+						m_read <= '0';
 						cache_block(block_number)(39 downto 32) <= m_readdata;
 					else
 						next_mem_state <= mem_5;
@@ -196,6 +215,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_7;
+						m_read <= '0';
 						cache_block(block_number)(47 downto 40) <= m_readdata;
 					else
 						next_mem_state <= mem_6;
@@ -207,6 +227,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_8;
+						m_read <= '0';
 						cache_block(block_number)(55 downto 48) <= m_readdata;
 					else
 						next_mem_state <= mem_7;
@@ -218,6 +239,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_9;
+						m_read <= '0';
 						cache_block(block_number)(63 downto 56) <= m_readdata;
 					else
 						next_mem_state <= mem_8;
@@ -229,6 +251,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_10;
+						m_read <= '0';
 						cache_block(block_number)(71 downto 64) <= m_readdata;
 					else
 						next_mem_state <= mem_9;
@@ -240,6 +263,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_11;
+						m_read <= '0';
 						cache_block(block_number)(79 downto 72) <= m_readdata;
 					else
 						next_mem_state <= mem_10;
@@ -251,6 +275,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_12;
+						m_read <= '0';
 						cache_block(block_number)(87 downto 80) <= m_readdata;
 					else
 						next_mem_state <= mem_11;
@@ -262,6 +287,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_13;
+						m_read <= '0';
 						cache_block(block_number)(95 downto 88) <= m_readdata;
 					else
 						next_mem_state <= mem_12;
@@ -273,6 +299,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_14;
+						m_read <= '0';
 						cache_block(block_number)(103 downto 96) <= m_readdata;
 					else
 						next_mem_state <= mem_13;
@@ -284,6 +311,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_15;
+						m_read <= '0';
 						cache_block(block_number)(111 downto 104) <= m_readdata;
 					else
 						next_mem_state <= mem_14;
@@ -295,6 +323,7 @@ begin
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_16;
+						m_read <= '0';
 						cache_block(block_number)(119 downto 112) <= m_readdata;
 					else
 						next_mem_state <= mem_15;
@@ -305,11 +334,10 @@ begin
 					m_read <= '1';
 					next_state <= MISS;
 					if (m_waitrequest = '0') then
-						-- Done Reading
 						next_mem_state <= mem_1;
-						
+	
 						m_read <= '0';
-						cache_block(block_number)(135 downto 134) <= "10"; -- Valid = 1 & Dirty = 0
+						cache_block(block_number)(135 downto 134) <= "10"; 
 						cache_block(block_number)(127 downto 120) <= m_readdata;
 						
 						if (Read_NotWrite = '1') then
@@ -329,7 +357,6 @@ begin
 						end if;
 						
 					else
-						-- reading is not done (m_waitrequest = 1)
 						next_mem_state <= mem_16;
 					end if;
 
@@ -337,7 +364,7 @@ begin
 					next_mem_state <= mem_1;
 					next_state <= IDLE;
 
-			end case; -- next_mem_state
+			end case;			
 				
 		when READ_READY =>
 			--this state is to create a 1 clock cycle buffer to read the read_data
@@ -347,7 +374,7 @@ begin
 		when EVICTION =>
 		--in this state we are writing to cache to save a dirty line
 
-			case next_mem_state is 
+			case mem_state is 
 
 				when mem_1 => 
 					m_addr <= to_integer(unsigned(std_logic_vector'( 
@@ -359,6 +386,7 @@ begin
 					m_writedata <= cache_block(block_number)(7 downto 0);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_2;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_1;
 					end if;
@@ -373,6 +401,7 @@ begin
 					m_writedata <= cache_block(block_number)(15 downto 8);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_3;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_2;
 					end if;
@@ -387,6 +416,7 @@ begin
 					m_writedata <= cache_block(block_number)(23 downto 16);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_4;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_3;
 					end if;
@@ -401,6 +431,7 @@ begin
 					m_writedata <= cache_block(block_number)(31 downto 24);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_5;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_4;
 					end if;
@@ -415,6 +446,7 @@ begin
 					m_writedata <= cache_block(block_number)(39 downto 32);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_6;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_5;
 					end if;
@@ -429,6 +461,7 @@ begin
 					m_writedata <= cache_block(block_number)(47 downto 40);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_7;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_6;
 					end if;
@@ -443,6 +476,7 @@ begin
 					m_writedata <= cache_block(block_number)(55 downto 48);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_8;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_7;
 					end if;
@@ -457,6 +491,7 @@ begin
 					m_writedata <= cache_block(block_number)(63 downto 56);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_9;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_8;
 					end if;
@@ -471,6 +506,7 @@ begin
 					m_writedata <= cache_block(block_number)(71 downto 64);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_10;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_9;
 					end if;
@@ -485,6 +521,7 @@ begin
 					m_writedata <= cache_block(block_number)(79 downto 72);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_11;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_10;
 					end if;
@@ -499,6 +536,7 @@ begin
 					m_writedata <= cache_block(block_number)(87 downto 80);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_12;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_11;
 					end if;
@@ -513,6 +551,7 @@ begin
 					m_writedata <= cache_block(block_number)(95 downto 88);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_13;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_12;
 					end if;
@@ -527,6 +566,7 @@ begin
 					m_writedata <= cache_block(block_number)(103 downto 96);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_14;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_13;
 					end if;
@@ -541,6 +581,7 @@ begin
 					m_writedata <= cache_block(block_number)(111 downto 104);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_15;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_14;
 					end if;
@@ -555,6 +596,7 @@ begin
 					m_writedata <= cache_block(block_number)(119 downto 112);
 					if (m_waitrequest = '0') then
 						next_mem_state <= mem_16;
+						m_write <= '0';
 					else
 						next_mem_state <= mem_15;
 					end if;
@@ -572,7 +614,8 @@ begin
 						
 						next_state <= MISS;
 						m_write <= '0';
-						cache_block(block_number)(134) <= '0'; --set dirty to 0
+						s_waitrequest <= '0';
+						cache_block(block_number)(135) <= '0'; --set dirty to 0
 					else
 						next_mem_state <= mem_16;
 					end if;
@@ -586,15 +629,9 @@ begin
 		
 		when WRITING =>
 			
-			if cache_block(block_number)(135) = '1' -- Valid
-				and cache_block(block_number)(133 downto 128) = s_addr(14 downto 9) -- Tag Match
-				then
+			if cache_block(block_number)(135) = '1' and cache_block(block_number)(133 downto 128) = s_addr(14 downto 9) then
 				next_state <= WRITE_HIT;
-				
-			elsif cache_block(block_number)(135) = '1' -- Valid
-			 	 	and cache_block(block_number)(133 downto 128) /= s_addr(14 downto 9) -- Tag mismatch
-			 		and cache_block(block_number)(134) = '1' -- Dirty
-			 		then
+			elsif cache_block(block_number)(135) = '1' and cache_block(block_number)(133 downto 128) /= s_addr(14 downto 9) and cache_block(block_number)(135) = '1' then
 				next_state <= EVICTION;
 			else -- valid = 0,	
 				next_state <= MISS;
@@ -602,8 +639,7 @@ begin
 		
 		when WRITE_HIT =>
 			--write to cache 
-			next_state <= IDLE;
-			
+			--set dirty bit to 1
 			if s_addr(3 downto 2) = "00" then
 				cache_block(block_number)(31 downto 0) <= s_writedata;
 			elsif s_addr(3 downto 2) = "01" then
@@ -613,9 +649,7 @@ begin
 			elsif s_addr(3 downto 2) = "11" then
 				cache_block(block_number)(127 downto 96) <= s_writedata;
 			end if;
-			
-			cache_block(block_number)(134) <= '1'; --set dirty bit to 1
-			s_waitrequest <= '0';
+			cache_block(block_number)(135) <= '1';
 			
 	end case;
 end process avalon_structure_proc;
