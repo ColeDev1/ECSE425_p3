@@ -145,6 +145,16 @@ begin
 	-- 3) wait until falling_edge(waitrequest) (Indicating read data valid or write request completed)
 	-- 4) assert to check that the expected behavior occured...
 	-- 5) Additionally, on dirty evictions, we will check to make sure MM is updated accordingly
+	
+	--We only needed 10 test cases because there are 6 cases which are unreachable:
+	-- Undefined 1) Writing Invalid Tag Match
+	-- Undefined 2) Reading Invalid Tag Match
+	-- Undefined 3) Writing Invalid And Dirty Tag Match
+	-- Undefined 4) Reading Invalid and Dirty Tag Match
+	-- Undefined 5) Writing Invalid and Dirty Tag Mismatch
+	-- Undefined 6) Reading Invalid and Dirty Tag Mismatch
+	
+	--If it somehow occurs that these cases are experienced, we only check if a block is invalid before we move to refilling the block
 --=======================================================================================================
 	
 	--Test Case 1:
@@ -153,7 +163,7 @@ begin
 	s_addr <= std_logic_vector(to_unsigned(B, 32));
 	s_writedata <= std_logic_vector(to_unsigned(54, 32));
 	s_write <= '1';
-	wait until falling_edge(s_waitrequest);
+	wait until faalling_edge(s_waitrequest);
 	
 	--Read from cache at location B to verify data is as expected...
 	s_write <= '0';
