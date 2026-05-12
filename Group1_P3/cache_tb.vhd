@@ -163,7 +163,7 @@ begin
 	s_addr <= std_logic_vector(to_unsigned(B, 32));
 	s_writedata <= std_logic_vector(to_unsigned(54, 32));
 	s_write <= '1';
-	wait until faalling_edge(s_waitrequest);
+	wait until falling_edge(s_waitrequest);
 	
 	--Read from cache at location B to verify data is as expected...
 	s_write <= '0';
